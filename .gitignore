@@ -1,0 +1,16 @@
+# Local credentials and environment files
+.env
+.env.*
+*.secrets.json
+*.credentials.json
+
+# Private exports and real reports
+*original*.json
+*production*.json
+private/
+real-reports/
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+.vscode/

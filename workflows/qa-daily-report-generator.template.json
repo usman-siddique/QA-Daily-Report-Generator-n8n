@@ -1,0 +1,493 @@
+{
+  "name": "QA Daily Report Generator | Portfolio Template",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "QA Daily Report Generator",
+        "formDescription": "Fill only the activities that Jira cannot know.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Additional Activities",
+              "fieldType": "textarea",
+              "fieldName": "additionalActivities",
+              "placeholder": "Examples:\n\n• API validation using Postman\n• Database validation\n• SQL data verification\n• Mobile application exploratory testing\n• Mobile application regression testing\n• Production issue verification\n• Performance testing using JMeter\n• Playwright automation development\n• Cross-device testing\n• Cross-browser testing\n\nLeave blank if there are no additional activities."
+            },
+            {
+              "fieldLabel": "Blockers",
+              "fieldType": "textarea",
+              "fieldName": "blockers",
+              "placeholder": "Describe any blockers preventing QA testing.\n\nLeave blank if there are no blockers."
+            },
+            {
+              "fieldLabel": "Tomorrow Plan",
+              "fieldType": "textarea",
+              "fieldName": "tomorrowPlan",
+              "placeholder": "Example:\n\nContinue testing pending development tickets.\nRetest resolved issues.\nComplete remaining QA verification."
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "useWorkflowTimezone": true
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        32,
+        0
+      ],
+      "id": "33755698-58b3-5f2c-b715-6e30c7d365b3",
+      "name": "QA Daily Report Generator"
+    },
+    {
+      "parameters": {
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "",
+          "mode": "id"
+        },
+        "text": "={{ $json.report }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        0
+      ],
+      "id": "88f07352-01c4-55b7-8a82-05bd63c0882e",
+      "name": "Send a message"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "jira-base-url",
+              "name": "jiraBaseUrl",
+              "value": "https://example.atlassian.net",
+              "type": "string"
+            },
+            {
+              "id": "exact-jql",
+              "name": "jql",
+              "value": "(\n    created >= startOfDay()\n    AND created < endOfDay()\n    AND creator = currentUser()\n)\nOR\n(\n    status CHANGED BY currentUser()\n    FROM \"IN QA\"\n    TO \"Resolved\"\n    AFTER startOfDay()\n    BEFORE endOfDay()\n)\nOR\n(\n    status CHANGED BY currentUser()\n    FROM \"IN QA\"\n    TO \"Re open\"\n    AFTER startOfDay()\n    BEFORE endOfDay()\n)\nORDER BY created DESC, status DESC, updated DESC",
+              "type": "string"
+            },
+            {
+              "id": "additional-activities",
+              "name": "additionalActivities",
+              "value": "={{ String($json.additionalActivities ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "blockers",
+              "name": "blockers",
+              "value": "={{ String($json.blockers ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "tomorrow-plan",
+              "name": "tomorrowPlan",
+              "value": "={{ String($json.tomorrowPlan ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "expected-jira-account-id",
+              "name": "expectedJiraAccountId",
+              "value": "REPLACE_WITH_YOUR_JIRA_ACCOUNT_ID",
+              "type": "string"
+            },
+            {
+              "id": "report-timezone",
+              "name": "reportTimezone",
+              "value": "Etc/UTC",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ec940b24-d80f-5713-a0c4-73a13bf013a5",
+      "name": "Report Inputs",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Report Inputs').first().json.jiraBaseUrl + '/rest/api/3/myself' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "cb46478c-643e-5ebb-87e3-b912fd29d35a",
+      "name": "Get Jira Identity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const profile = $json || {};\nconst EXPECTED_ACCOUNT_ID = String($('Report Inputs').first().json.expectedJiraAccountId || '').trim();\nconst EXPECTED_TIME_ZONE = String($('Report Inputs').first().json.reportTimezone || 'Etc/UTC').trim();\n\nif (!EXPECTED_ACCOUNT_ID || EXPECTED_ACCOUNT_ID.startsWith('REPLACE_')) {\n  throw new Error('Configure expectedJiraAccountId in the Report Inputs node first.');\n}\nif (!profile.active) {\n  throw new Error('The Jira reporting account is inactive.');\n}\nif (String(profile.accountId || '') !== EXPECTED_ACCOUNT_ID) {\n  throw new Error('The Jira credential/profile does not match the approved reporting account.');\n}\nif (String(profile.timeZone || '') !== EXPECTED_TIME_ZONE) {\n  throw new Error(`Jira timezone mismatch: expected ${EXPECTED_TIME_ZONE}, received ${profile.timeZone || 'missing'}.`);\n}\n\nreturn {\n  json: {\n    ...profile,\n    timezoneVerified: true,\n    verifiedTimeZone: EXPECTED_TIME_ZONE\n  }\n};"
+      },
+      "id": "158c37a7-4738-51fc-a35e-cafab6d62aa8",
+      "name": "Validate Jira Identity & Timezone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Report Inputs').first().json.jiraBaseUrl + '/rest/api/3/search/jql' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "jql",
+              "value": "={{ $('Report Inputs').first().json.jql }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "100"
+            },
+            {
+              "name": "fields",
+              "value": "*all,-comment,-attachment,-worklog"
+            },
+            {
+              "name": "expand",
+              "value": "names,schema"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "nextPageToken",
+                    "value": "={{ $response.body.nextPageToken }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.isLast === true || !$response.body.nextPageToken }}",
+              "limitPagesFetched": true,
+              "requestInterval": 100
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "4405d79c-a199-5dd8-980b-2a722dbb8cb7",
+      "name": "Search Jira Activity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        720,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "jsCode": "const pages = $input.all().map((item) => item.json || {});\n  const identity = $('Get Jira Identity').first().json || {};\n  const inputs = $('Report Inputs').first().json || {};\n  const names = {};\n  const issuesByKey = new Map();\n\n  for (const page of pages) {\n    Object.assign(names, page.names || {});\n    for (const issue of (Array.isArray(page.issues) ? page.issues : [])) {\n      if (issue && issue.key) issuesByKey.set(issue.key, issue);\n    }\n  }\n\n  const severityFieldIds = Object.entries(names)\n    .filter(([id, label]) => id.startsWith('customfield_') && /severity/i.test(String(label || '')))\n    .sort((a, b) => {\n      const aExact = String(a[1]).trim().toLowerCase() === 'severity' ? 0 : 1;\n      const bExact = String(b[1]).trim().toLowerCase() === 'severity' ? 0 : 1;\n      return aExact - bExact || a[0].localeCompare(b[0]);\n    })\n    .map(([id]) => id);\n\n  const common = {\n    jiraIdentity: {\n      accountId: identity.accountId || '',\n      displayName: identity.displayName || '',\n      emailAddress: identity.emailAddress || '',\n      active: identity.active === true\n    },\n    additionalActivities: String(inputs.additionalActivities || '').trim(),\n    blockers: String(inputs.blockers || '').trim(),\n    tomorrowPlan: String(inputs.tomorrowPlan || '').trim(),\n    severityFieldIds,\n    fieldNames: names\n  };\n\n  const issues = [...issuesByKey.values()];\n  if (issues.length === 0) {\n    return [{ json: { ...common, empty: true, key: '', issue: null } }];\n  }\n\n  return issues.map((issue) => ({\n    json: {\n      ...common,\n      empty: false,\n      key: issue.key,\n      issue\n    }\n  }));"
+      },
+      "id": "87342542-bce3-570a-a4eb-d82a16f234e9",
+      "name": "Prepare Issues for Changelog",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.empty ? $('Report Inputs').first().json.jiraBaseUrl + '/rest/api/3/myself' : $('Report Inputs').first().json.jiraBaseUrl + '/rest/api/3/issue/' + encodeURIComponent($json.key) + '/changelog' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "maxResults",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 250
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "startAt",
+                    "value": "={{ ($response.body.startAt || 0) + ($response.body.maxResults || 100) }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !Array.isArray($response.body.values) || $response.body.isLast === true || (($response.body.startAt || 0) + ($response.body.maxResults || 0) >= ($response.body.total || 0)) }}",
+              "limitPagesFetched": true,
+              "requestInterval": 100
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "79cc2501-610f-5272-a4c0-559aa3702d4c",
+      "name": "Get Issue Changelog",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1200,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "jsCode": "const sourceItems = $('Prepare Issues for Changelog').all().map((item) => item.json || {});\n  const responseItems = $input.all();\n  const changelogByKey = new Map();\n\n  function pairedIndex(item, fallbackIndex) {\n    const link = item.pairedItem;\n    if (Array.isArray(link) && link.length) return Number(link[0]?.item);\n    if (link && typeof link === 'object' && link.item !== undefined) return Number(link.item);\n    if (sourceItems.length === responseItems.length) return fallbackIndex;\n    if (sourceItems.length === 1) return 0;\n    return NaN;\n  }\n\n  for (let i = 0; i < responseItems.length; i++) {\n    const responseItem = responseItems[i];\n    const body = responseItem.json?.body ?? responseItem.json ?? {};\n    let index = pairedIndex(responseItem, i);\n    let source = Number.isInteger(index) ? sourceItems[index] : undefined;\n\n    if (!source || (!source.empty && !source.key)) {\n      const selfUrl = String(body.self || '');\n      const match = selfUrl.match(/\\/issue\\/([^/]+)\\/changelog/i);\n      if (match) source = sourceItems.find((candidate) => candidate.key === decodeURIComponent(match[1]));\n    }\n\n    if (!source) {\n      throw new Error('Unable to associate a Jira changelog page with its source issue.');\n    }\n    if (source.empty) continue;\n\n    const values = Array.isArray(body.values) ? body.values : [];\n    if (!changelogByKey.has(source.key)) changelogByKey.set(source.key, []);\n    changelogByKey.get(source.key).push(...values);\n  }\n\n  const base = sourceItems[0] || {};\n  const identity = base.jiraIdentity || {};\n  if (!identity.accountId) {\n    throw new Error('Jira identity response is missing accountId; deterministic creator and transition checks cannot continue.');\n  }\n\n  const TIME_ZONE = String($('Report Inputs').first().json.reportTimezone || 'Etc/UTC').trim();\n  const now = new Date();\n\n  function localDateKey(value) {\n    const date = value instanceof Date ? value : new Date(value);\n    if (Number.isNaN(date.getTime())) return '';\n    const parts = new Intl.DateTimeFormat('en-GB', {\n      timeZone: TIME_ZONE,\n      year: 'numeric',\n      month: '2-digit',\n      day: '2-digit'\n    }).formatToParts(date);\n    const get = (type) => parts.find((part) => part.type === type)?.value || '';\n    return `${get('year')}-${get('month')}-${get('day')}`;\n  }\n\n  const reportDateKey = localDateKey(now);\n  const reportDate = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TIME_ZONE,\n    day: '2-digit',\n    month: 'short',\n    year: 'numeric'\n  }).format(now);\n\n  function adfText(node) {\n    if (!node) return '';\n    if (typeof node === 'string') return node;\n    if (Array.isArray(node)) return node.map(adfText).filter(Boolean).join('\\n');\n    if (node.type === 'text') return String(node.text || '');\n    if (node.type === 'hardBreak') return '\\n';\n    const content = Array.isArray(node.content) ? node.content : [];\n    const joined = content.map(adfText).filter(Boolean).join(node.type === 'paragraph' ? '' : '\\n');\n    return joined.trim();\n  }\n\n  function fieldLabel(value) {\n    if (value === null || value === undefined || value === '') return '';\n    if (Array.isArray(value)) return value.map(fieldLabel).filter(Boolean).join(', ');\n    if (typeof value === 'object') {\n      return String(value.value ?? value.name ?? value.displayName ?? value.label ?? '').trim();\n    }\n    return String(value).trim();\n  }\n\n  function importance(fields, severityFieldIds) {\n    for (const fieldId of severityFieldIds || []) {\n      const label = fieldLabel(fields[fieldId]);\n      if (label) return { type: 'Severity', value: label };\n    }\n    const priority = fieldLabel(fields.priority);\n    return priority ? { type: 'Priority', value: priority } : null;\n  }\n\n  function ticket(issue, category) {\n    const fields = issue.fields || {};\n    const imp = importance(fields, base.severityFieldIds || []);\n    return {\n      key: String(issue.key || ''),\n      summary: String(fields.summary || ''),\n      category,\n      status: String(fields.status?.name || ''),\n      created: String(fields.created || ''),\n      updated: String(fields.updated || ''),\n      creatorAccountId: String(fields.creator?.accountId || ''),\n      description: adfText(fields.description),\n      ...(imp ? { importanceType: imp.type, importance: imp.value } : {})\n    };\n  }\n\n  const created = [];\n  const resolved = [];\n  const reopened = [];\n  const issueMap = new Map(\n    sourceItems\n      .filter((item) => !item.empty && item.issue?.key)\n      .map((item) => [item.issue.key, item.issue])\n  );\n\n  const sourceFacts = [...issueMap.values()]\n    .map((issue) => {\n      const fact = ticket(issue, 'retrieved');\n      return {\n        key: fact.key,\n        summary: fact.summary,\n        status: fact.status,\n        created: fact.created,\n        updated: fact.updated,\n        creatorAccountId: fact.creatorAccountId,\n        ...(fact.importance ? { importanceType: fact.importanceType, importance: fact.importance } : {})\n      };\n    })\n    .sort((a, b) => a.key.localeCompare(b.key));\n\n  for (const issue of issueMap.values()) {\n    const fields = issue.fields || {};\n    const key = issue.key;\n    if (\n      localDateKey(fields.created) === reportDateKey &&\n      String(fields.creator?.accountId || '') === String(identity.accountId)\n    ) {\n      created.push(ticket(issue, 'created'));\n    }\n\n    let hasResolved = false;\n    let hasReopened = false;\n    for (const history of (changelogByKey.get(key) || [])) {\n      if (localDateKey(history.created) !== reportDateKey) continue;\n      if (String(history.author?.accountId || '') !== String(identity.accountId)) continue;\n      for (const change of (Array.isArray(history.items) ? history.items : [])) {\n        if (String(change.field || '').toLowerCase() !== 'status') continue;\n        const from = String(change.fromString || '').trim().toLowerCase();\n        const to = String(change.toString || '').trim().toLowerCase();\n        if (from === 'in qa' && to === 'resolved') hasResolved = true;\n        if (from === 'in qa' && to === 're open') hasReopened = true;\n      }\n    }\n    if (hasResolved) resolved.push(ticket(issue, 'resolved'));\n    if (hasReopened) reopened.push(ticket(issue, 'reopened'));\n  }\n\n  function dedupe(items) {\n    return [...new Map(items.map((item) => [item.key, item])).values()]\n      .sort((a, b) => a.key.localeCompare(b.key));\n  }\n\n  const categories = {\n    created: dedupe(created),\n    resolved: dedupe(resolved),\n    reopened: dedupe(reopened)\n  };\n\n  const newIssueStatusBreakdown = {};\n  for (const item of categories.created) {\n    const status = item.status || 'Unknown';\n    newIssueStatusBreakdown[status] = (newIssueStatusBreakdown[status] || 0) + 1;\n  }\n  const orderedBreakdown = Object.fromEntries(\n    Object.entries(newIssueStatusBreakdown).sort(([a], [b]) => a.localeCompare(b))\n  );\n\n  const counts = {\n    newIssues: categories.created.length,\n    resolved: categories.resolved.length,\n    reopened: categories.reopened.length,\n    newIssuesByStatus: orderedBreakdown\n  };\n\n  const additionalActivities = String(base.additionalActivities || '').trim();\n  const blockers = String(base.blockers || '').trim();\n  const tomorrowPlan = String(base.tomorrowPlan || '').trim();\n\n  const immutableEvidence = {\n    reportDate,\n    timezone: TIME_ZONE,\n    counts,\n    tickets: categories,\n    additionalActivities: additionalActivities || null,\n    blockers: blockers || null,\n    tomorrowPlan: tomorrowPlan || null\n  };\n\n  const prompt = [\n    'Return JSON only with exactly these properties: \"summary\", \"mainFocus\", \"activities\", \"blockers\", and \"nextSteps\".',\n    '\"summary\" and \"mainFocus\" must be non-empty professional English strings.',\n    '\"activities\" and \"nextSteps\" must be arrays of concise professional English strings. \"blockers\" must be one concise English string.',\n    'Translate Roman Urdu or mixed-language input into natural professional English. Correct spelling, grammar, and typing mistakes.',\n    'Split distinct activities and next actions into separate array items. Preserve the meaning and do not omit useful facts.',\n    'Use only the immutable evidence below. Never invent activities, results, people, tickets, counts, fixes, or plans.',\n    'Do not calculate or alter Jira ticket IDs, summaries, classifications, statuses, severity/priority, or numeric counts; those are rendered deterministically outside Gemini.',\n    'If the user explicitly says there is no blocker, set \"blockers\" to exactly \"None.\" even when they mention pending work or a dependency. Put that dependency in \"summary\" or \"nextSteps\" instead.',\n    'Include explicit follow-ups mentioned anywhere in the form input, such as a planned discussion, in \"nextSteps\".',\n    'Never include Jira issue keys or numeric ticket counts in generated fields; those are rendered separately.',\n    'Preserve concrete examples and important technical details such as features, environments, and planned follow-up dates.',\n    'When blockers is \"None.\", do not call pending work blocked; state neutrally that it could not be retested until the code is pushed.',\n    'Infer obvious typing corrections from context. For example, Postman \"futre/further validation\" means further validation, not future validation.',\n    'Do not copy rough input verbatim. Rewrite it clearly and concisely.',\n    'IMMUTABLE EVIDENCE:',\n    JSON.stringify(immutableEvidence)\n  ].join('\\n');\n\n  return [{\n    json: {\n      reportDate,\n      timezone: TIME_ZONE,\n      reportDateKey,\n      jiraIdentity: identity,\n      counts,\n      categories,\n      retrievedIssueKeys: sourceFacts.map((fact) => fact.key),\n      sourceFacts,\n      additionalActivities,\n      blockers,\n      tomorrowPlan,\n      prompt\n    }\n  }];"
+      },
+      "id": "1ecfd9e7-e927-5737-9bae-86d10dbc088f",
+      "name": "Classify Jira Activity & Prepare Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "identity"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ contents: [{ parts: [{ text: $json.prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', required: ['summary','mainFocus','activities','blockers','nextSteps'], properties: { summary: { type: 'STRING' }, mainFocus: { type: 'STRING' }, activities: { type: 'ARRAY', items: { type: 'STRING' } }, blockers: { type: 'STRING' }, nextSteps: { type: 'ARRAY', items: { type: 'STRING' } } } } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "geminiResponseFile"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "269f4c79-f491-571b-bafb-8213b7788699",
+      "name": "Generate Summary with Gemini API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1632,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "jsCode": "function decodeBytes(bytes) {\n  if (!Array.isArray(bytes)) return '';\n  return new TextDecoder('utf-8').decode(Uint8Array.from(bytes));\n}\n\nfunction parseJsonText(value, label) {\n  const text = String(value ?? '').replace(/^\\uFEFF/, '').trim();\n  if (!text) throw new Error(`${label} was empty.`);\n  const cleaned = text.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\n  try {\n    return JSON.parse(cleaned);\n  } catch (error) {\n    throw new Error(`${label} was not valid JSON: ${error.message}`);\n  }\n}\n\nfunction normalizeCandidate(value, label) {\n  if (value === null || value === undefined) return null;\n  if (typeof value === 'string') return parseJsonText(value, label);\n  if (Array.isArray(value)) return parseJsonText(decodeBytes(value), label);\n  if (typeof value !== 'object') return null;\n  if (value.type === 'Buffer' && Array.isArray(value.data)) {\n    return parseJsonText(decodeBytes(value.data), label);\n  }\n  return value;\n}\n\nfunction responseEnvelope(value) {\n  const root = normalizeCandidate(value, 'Gemini response');\n  const candidates = [\n    root,\n    root?.body,\n    root?.data,\n    root?.response,\n    root?.result,\n    root?.geminiResponse\n  ];\n\n  for (let index = 0; index < candidates.length; index++) {\n    const candidate = normalizeCandidate(candidates[index], `Gemini response variant ${index + 1}`);\n    if (!candidate || typeof candidate !== 'object') continue;\n    if (candidate.error) {\n      const message = candidate.error.message || candidate.error.status || JSON.stringify(candidate.error);\n      throw new Error(`Gemini API error: ${message}`);\n    }\n    if (Array.isArray(candidate.candidates)) return candidate;\n    if (typeof candidate.summary === 'string' && typeof candidate.mainFocus === 'string') {\n      return { directStructuredOutput: candidate };\n    }\n  }\n\n  const keys = root && typeof root === 'object' ? Object.keys(root).join(', ') : typeof root;\n  throw new Error(`Gemini response did not contain a supported JSON envelope. Received: ${keys || 'no fields'}.`);\n}\n\nlet responseValue = $json;\nif ($binary?.geminiResponseFile) {\n  try {\n    const responseBuffer = await this.helpers.getBinaryDataBuffer(0, 'geminiResponseFile');\n    responseValue = responseBuffer.toString('utf8');\n  } catch (error) {\n    throw new Error(`Gemini binary response could not be read: ${error.message}`);\n  }\n}\n\nlet envelope;\ntry {\n  envelope = responseEnvelope(responseValue);\n} catch (error) {\n  throw new Error(`Gemini response envelope could not be parsed: ${error.message}`);\n}\n\nif (envelope.promptFeedback?.blockReason) {\n  throw new Error(`Gemini blocked the request: ${envelope.promptFeedback.blockReason}.`);\n}\n\n  const direct = envelope.directStructuredOutput;\n  const raw = direct\n    ? JSON.stringify(direct)\n    : envelope?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('').trim();\n\n  if (!raw) {\n    const finishReason = envelope?.candidates?.[0]?.finishReason || 'unknown';\n    throw new Error(`Gemini returned no report content (finish reason: ${finishReason}).`);\n  }\n\n  let parsed;\n  try {\n    parsed = direct || parseJsonText(raw, 'Gemini generated content');\n  } catch (error) {\n    throw new Error(`Gemini output was not valid JSON: ${error.message}`);\n  }\n\n  if (!parsed || typeof parsed.summary !== 'string' || !parsed.summary.trim()) {\n    throw new Error('Gemini output is missing a non-empty summary.');\n  }\n  if (typeof parsed.mainFocus !== 'string' || !parsed.mainFocus.trim()) {\n    throw new Error('Gemini output is missing a non-empty mainFocus.');\n  }\n  if (!Array.isArray(parsed.activities) || !parsed.activities.every((item) => typeof item === 'string')) {\n    throw new Error('Gemini output activities must be an array of strings.');\n  }\n  if (typeof parsed.blockers !== 'string' || !parsed.blockers.trim()) {\n    throw new Error('Gemini output is missing blockers.');\n  }\n  if (!Array.isArray(parsed.nextSteps) || !parsed.nextSteps.every((item) => typeof item === 'string')) {\n    throw new Error('Gemini output nextSteps must be an array of strings.');\n  }\n\n  function cleanList(values) {\n    return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];\n  }\n\n  const polishedActivities = cleanList(parsed.activities);\n  const polishedNextSteps = cleanList(parsed.nextSteps);\n  const polishedBlockers = parsed.blockers.trim();\n\n  const data = $('Classify Jira Activity & Prepare Gemini').first().json;\n  const counts = data.counts;\n  const categories = data.categories;\n\n  function displayStatus(value) {\n    return String(value || 'Unknown')\n      .split(/\\s+/)\n      .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : '')\n      .join(' ');\n  }\n\n  function ticketLine(item) {\n    const importance = item.importance ? ` | ${item.importanceType}: ${item.importance}` : '';\n    if (item.category === 'resolved') {\n      return `• ${item.key} - ${item.summary}${importance} | Result: Resolved`;\n    }\n    if (item.category === 'reopened') {\n      return `• ${item.key} - ${item.summary}${importance} | Result: Reopened`;\n    }\n    return `• ${item.key} - ${item.summary}${importance} | Status: ${displayStatus(item.status)}`;\n  }\n\n  function section(title, items) {\n    const lines = items.length ? items.map(ticketLine) : ['• None.'];\n    return [`*${title}:*`, ...lines].join('\\n');\n  }\n\n  const breakdown = Object.entries(counts.newIssuesByStatus || {});\n  const breakdownText = breakdown.length\n    ? ` (${breakdown.map(([status, count]) => `${displayStatus(status)}: ${count}`).join(', ')})`\n    : '';\n\n  const summaryLines = [\n    '*Summary:*',\n    `• New issues / improvements reported: ${counts.newIssues}${breakdownText}.`,\n    `• QA verified / resolved: ${counts.resolved}.`,\n    `• Reopened: ${counts.reopened}.`,\n    ...polishedActivities.map((activity) => `• ${activity}`),\n    `• ${parsed.summary.trim()}`,\n    `• Main Focus: ${parsed.mainFocus.trim()}`\n  ];\n\n  const parts = [\n    `*QA Daily Report - ${data.reportDate}*`,\n    summaryLines.join('\\n'),\n    section('QA Verified / Resolved', categories.resolved),\n    section('New Issues / Improvements Reported', categories.created)\n  ];\n\n  if (categories.reopened.length) {\n    parts.push(section('Reopened Issues', categories.reopened));\n  }\n\n  parts.push(`*Blockers:*\\n${polishedBlockers}`);\n  const nextText = polishedNextSteps.length\n    ? polishedNextSteps.map((step) => `• ${step}`).join('\\n')\n    : '• No plan was provided.';\n  parts.push(`*Next:*\\n${nextText}`);\n\n  const report = parts.join('\\n\\n');\n  const required = [\n    `*QA Daily Report - ${data.reportDate}*`,\n    '*Summary:*',\n    '*QA Verified / Resolved:*',\n    '*New Issues / Improvements Reported:*',\n    '*Blockers:*',\n    '*Next:*'\n  ];\n  for (const heading of required) {\n    if (!report.includes(heading)) throw new Error(`Final report validation failed: missing ${heading}`);\n  }\n\n  return [{\n    json: {\n      report,\n      reportDate: data.reportDate,\n      timezone: data.timezone,\n      counts,\n      categories,\n      retrievedIssueKeys: data.retrievedIssueKeys,\n      sourceFacts: data.sourceFacts,\n      jiraIdentity: data.jiraIdentity,\n      geminiSummary: parsed.summary.trim(),\n      geminiMainFocus: parsed.mainFocus.trim(),\n      polishedActivities,\n      polishedBlockers,\n      polishedNextSteps,\n      slackDispatchEnabled: true\n    }\n  }];"
+      },
+      "id": "0d306f08-6ba1-5f33-a52a-1cfb7313baae",
+      "name": "Build & Validate Final Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "QA Daily Report Generator": {
+      "main": [
+        [
+          {
+            "node": "Report Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report Inputs": {
+      "main": [
+        [
+          {
+            "node": "Get Jira Identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Jira Identity": {
+      "main": [
+        [
+          {
+            "node": "Validate Jira Identity & Timezone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Jira Identity & Timezone": {
+      "main": [
+        [
+          {
+            "node": "Search Jira Activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Jira Activity": {
+      "main": [
+        [
+          {
+            "node": "Prepare Issues for Changelog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Issues for Changelog": {
+      "main": [
+        [
+          {
+            "node": "Get Issue Changelog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Issue Changelog": {
+      "main": [
+        [
+          {
+            "node": "Classify Jira Activity & Prepare Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Jira Activity & Prepare Gemini": {
+      "main": [
+        [
+          {
+            "node": "Generate Summary with Gemini API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Summary with Gemini API": {
+      "main": [
+        [
+          {
+            "node": "Build & Validate Final Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build & Validate Final Report": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Etc/UTC"
+  },
+  "pinData": {}
+}
